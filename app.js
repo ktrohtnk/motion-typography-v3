@@ -385,8 +385,8 @@ function initUI() {
         state.dissolveType = document.getElementById('smokeTypeSelect').value;
         state.dissolveParticles = [];
         
-        // If Sand Crumble or Ash Blow, generate particles from current text frame
-        if (state.dissolveType === 'sand' || state.dissolveType === 'ash') {
+        // If Sand Crumble, Ash Blow, or Detergent Whirlpool, generate particles
+        if (state.dissolveType === 'sand' || state.dissolveType === 'ash' || state.dissolveType === 'water') {
             generateSandParticles();
         }
     });
@@ -654,20 +654,68 @@ function render() {
     }
 
     if (state.dissolveType === 'water' && state.isDissolving) {
-        // Water Grid: draw to offscreen, then draw back with sine distortion
+        // Detergent Whirlpool (Melting from edges inward like washing machine)
         offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
-        renderCore(offCtx, true);
+        renderCore(offCtx, true); // Draw core text
         
-        const prog = Math.min(1, state.dissolveProgress);
-        const waveAmp = prog * 100;
-        const waveFreq = 0.02 + (prog * 0.05);
+        const maxDist = Math.max(canvas.width, canvas.height) / 2;
+        // The mask shrinks from outside in.
+        const maskProg = Math.min(1, state.dissolveProgress / 1.2);
+        const currentRadius = maxDist * (1 - maskProg);
         
+        // Erase the outside of the text smoothly
+        offCtx.save();
+        offCtx.globalCompositeOperation = 'destination-in';
+        offCtx.filter = 'blur(20px)';
+        offCtx.beginPath();
+        offCtx.arc(offCanvas.width/2, offCanvas.height/2, currentRadius, 0, Math.PI*2);
+        offCtx.fill();
+        offCtx.restore();
+        
+        ctx.drawImage(offCanvas, 0, 0); // Draw the partially melted text
+        
+        // Draw the particles that broke off
         ctx.save();
-        ctx.globalAlpha = 1 - prog;
-        for(let y=0; y<canvas.height; y+=4) {
-            const xOffset = Math.sin(y * waveFreq + (frameCount * 0.5)) * waveAmp;
-            ctx.drawImage(offCanvas, 0, y, canvas.width, 4, xOffset, y, canvas.width, 4);
-        }
+        ctx.translate(canvas.width/2, canvas.height/2);
+        
+        state.dissolveParticles.forEach(p => {
+            const dist = Math.sqrt(p.x*p.x + p.y*p.y);
+            // Particle activates when the shrinking text radius passes it
+            if (dist > currentRadius - 20) {
+                if (!p.active) {
+                    p.active = true;
+                    const angle = Math.atan2(p.y, p.x);
+                    // Whirlpool initial velocity (strong tangential, slight outward)
+                    p.vx = Math.cos(angle + Math.PI/2) * 8 + Math.cos(angle) * 1;
+                    p.vy = Math.sin(angle + Math.PI/2) * 8 + Math.sin(angle) * 1;
+                    p.life = 0;
+                }
+                
+                p.life += 0.015; // Fade over time
+                
+                const angle = Math.atan2(p.y, p.x);
+                // Continuous whirlpool force + melting noise
+                p.vx += Math.cos(angle + Math.PI/2) * 0.8 + (Math.random() - 0.5) * 1.5;
+                p.vy += Math.sin(angle + Math.PI/2) * 0.8 + (Math.random() - 0.5) * 1.5;
+                
+                // Fluid resistance (water drag)
+                p.vx *= 0.94;
+                p.vy *= 0.94;
+                
+                p.x += p.vx;
+                p.y += p.vy;
+                
+                const alpha = Math.max(0, 1 - p.life);
+                if (alpha > 0) {
+                    ctx.globalAlpha = alpha * 0.8; // Watery transparency
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    // Particles expand slightly as they dissolve (like bubbles)
+                    ctx.arc(p.x, p.y, 2 + p.life * 6, 0, Math.PI*2);
+                    ctx.fill();
+                }
+            }
+        });
         ctx.restore();
         
     } else if (state.dissolveType === 'sand' && state.isDissolving) {
@@ -986,8 +1034,8 @@ function renderCore(context, transparentBg) {
             tsCtx.textAlign = 'center'; tsCtx.textBaseline = 'middle'; tsCtx.lineJoin = 'round';
             tsCtx.strokeStyle = state.color;
             
-            // Use a slightly scaled line width. Not 100% scaled (which was too fat), but not fixed (which looks like a straight line).
-            const glitchLineWidth = Math.max(state.outlineWidth, state.outlineWidth * Math.sqrt(cSize / state.size));
+            // Guarantee the stroke extends outward by at least pSize (1 pixel block), otherwise it vanishes when subtracted!
+            const glitchLineWidth = Math.max(state.outlineWidth, state.outlineWidth * Math.sqrt(cSize / state.size), pSize * 2);
             
             // Step 1: Draw the heavily blurred halo (using the glitch line width)
             tsCtx.lineWidth = glitchLineWidth;

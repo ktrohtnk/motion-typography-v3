@@ -654,22 +654,41 @@ function render() {
     }
 
     if (state.dissolveType === 'water' && state.isDissolving) {
-        // Detergent Whirlpool (Melting from edges inward like washing machine)
+        // Detergent Dissolve (Crumble from ends, sway upwards)
         offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
         renderCore(offCtx, true); // Draw core text
         
-        const maxDist = Math.max(canvas.width, canvas.height) / 2;
-        // The mask shrinks from outside in.
-        const maskProg = Math.min(1, state.dissolveProgress / 1.2);
-        const currentRadius = maxDist * (1 - maskProg);
+        // Find the actual width of the text so it starts crumbling immediately
+        if (!state.waterMaxDist && state.dissolveParticles.length > 0) {
+            let maxX = 0;
+            state.dissolveParticles.forEach(p => {
+                if (Math.abs(p.x) > maxX) maxX = Math.abs(p.x);
+            });
+            state.waterMaxDist = maxX + 10;
+        }
+        const maxDist = state.waterMaxDist || (canvas.width / 2);
         
-        // Erase the outside of the text smoothly
+        // The mask shrinks horizontally from both ends.
+        const maskProg = Math.min(1, state.dissolveProgress / 1.2);
+        const currentHalfWidth = maxDist * (1 - maskProg);
+        
+        // Erase the ends of the text smoothly
         offCtx.save();
         offCtx.globalCompositeOperation = 'destination-in';
-        offCtx.filter = 'blur(20px)';
-        offCtx.beginPath();
-        offCtx.arc(offCanvas.width/2, offCanvas.height/2, currentRadius, 0, Math.PI*2);
-        offCtx.fill();
+        offCtx.filter = 'blur(15px)';
+        
+        if (currentHalfWidth > 0) {
+            // Draw a rectangle in the center that shrinks
+            offCtx.fillRect(
+                offCanvas.width/2 - currentHalfWidth, 
+                0, 
+                currentHalfWidth * 2, 
+                offCanvas.height
+            );
+        } else {
+            // Guarantee all text is erased when mask finishes
+            offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
+        }
         offCtx.restore();
         
         ctx.drawImage(offCanvas, 0, 0); // Draw the partially melted text
@@ -679,28 +698,27 @@ function render() {
         ctx.translate(canvas.width/2, canvas.height/2);
         
         state.dissolveParticles.forEach(p => {
-            const dist = Math.sqrt(p.x*p.x + p.y*p.y);
-            // Particle activates when the shrinking text radius passes it
-            if (dist > currentRadius - 20) {
+            const distX = Math.abs(p.x);
+            // Particle activates when the shrinking width passes it
+            if (distX > currentHalfWidth - 15) {
                 if (!p.active) {
                     p.active = true;
-                    const angle = Math.atan2(p.y, p.x);
-                    // Whirlpool initial velocity (strong tangential, slight outward)
-                    p.vx = Math.cos(angle + Math.PI/2) * 8 + Math.cos(angle) * 1;
-                    p.vy = Math.sin(angle + Math.PI/2) * 8 + Math.sin(angle) * 1;
+                    // Initial gentle upward velocity
+                    p.vy = -0.5 - Math.random() * 1.5;
+                    p.vx = (Math.random() - 0.5) * 1.0;
                     p.life = 0;
+                    p.swayOffset = Math.random() * Math.PI * 2; // Randomize sway phase
                 }
                 
                 p.life += 0.015; // Fade over time
                 
-                const angle = Math.atan2(p.y, p.x);
-                // Continuous whirlpool force + melting noise
-                p.vx += Math.cos(angle + Math.PI/2) * 0.8 + (Math.random() - 0.5) * 1.5;
-                p.vy += Math.sin(angle + Math.PI/2) * 0.8 + (Math.random() - 0.5) * 1.5;
+                // Sway gently left and right while floating up
+                p.vx += Math.sin(p.life * 15 + p.swayOffset) * 0.05; 
+                p.vy -= 0.02; // Buoyancy (accelerate upwards gently)
                 
-                // Fluid resistance (water drag)
-                p.vx *= 0.94;
-                p.vy *= 0.94;
+                // Fluid resistance (prevent it from going too fast)
+                p.vx *= 0.98;
+                p.vy *= 0.98;
                 
                 p.x += p.vx;
                 p.y += p.vy;
@@ -711,7 +729,7 @@ function render() {
                     ctx.fillStyle = p.color;
                     ctx.beginPath();
                     // Particles expand slightly as they dissolve (like bubbles)
-                    ctx.arc(p.x, p.y, 2 + p.life * 6, 0, Math.PI*2);
+                    ctx.arc(p.x, p.y, 2 + p.life * 4, 0, Math.PI*2);
                     ctx.fill();
                 }
             }

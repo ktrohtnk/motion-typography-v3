@@ -179,6 +179,7 @@ function bindUI(id, stateKey, parser = parseInt, displayId = null) {
             val = parser ? parser(e.target.value) : e.target.value;
         }
         state[stateKey] = val;
+        state.isDissolving = false; // Reset dissolve on any UI change
         if (displayId) {
             const d = document.getElementById(displayId);
             if(d) d.textContent = val;
@@ -190,16 +191,20 @@ function bindUI(id, stateKey, parser = parseInt, displayId = null) {
 }
 
 function initUI() {
-    document.getElementById('textInput').addEventListener('input', e => state.text = e.target.value);
-    document.getElementById('fontSelect').addEventListener('change', e => state.fontFamily = e.target.value);
-    document.getElementById('colorInput').addEventListener('input', e => state.color = e.target.value);
-    document.getElementById('bgColorInput').addEventListener('input', e => state.bgColor = e.target.value);
-    document.getElementById('transparentBgToggle').addEventListener('change', e => state.transparentBg = e.target.checked);
+    document.getElementById('textInput').addEventListener('input', e => {
+        state.text = e.target.value;
+        state.isDissolving = false;
+    });
+    document.getElementById('fontSelect').addEventListener('change', e => { state.fontFamily = e.target.value; state.isDissolving = false; });
+    document.getElementById('colorInput').addEventListener('input', e => { state.color = e.target.value; state.isDissolving = false; });
+    document.getElementById('bgColorInput').addEventListener('input', e => { state.bgColor = e.target.value; state.isDissolving = false; });
+    document.getElementById('transparentBgToggle').addEventListener('change', e => { state.transparentBg = e.target.checked; state.isDissolving = false; });
     document.getElementById('greenScreenBtn').addEventListener('click', () => {
         state.bgColor = '#00FF00';
         document.getElementById('bgColorInput').value = '#00FF00';
         state.transparentBg = false;
         document.getElementById('transparentBgToggle').checked = false;
+        state.isDissolving = false;
     });
     
     bindUI('sizeSlider', 'size', parseInt, 'sizeBox');
@@ -573,10 +578,8 @@ function loop(timestamp) {
         frameCount++;
         
         if (state.isDissolving) {
-            state.dissolveProgress += 0.05;
-            if (state.dissolveProgress > 1.5) {
-                state.isDissolving = false;
-            }
+            state.dissolveProgress += 0.02; // Slower progress so particles have more time to scatter
+            // Do NOT set isDissolving = false automatically. The text stays gone until the user types again.
         }
         
         // Glitch Pop B (Per-Char Mosaic)
@@ -703,21 +706,21 @@ function render() {
                 if (!p.active) {
                     p.active = true;
                     // Initial movement: drop slightly (gravity) then scatter
-                    p.vy = 0.5 + Math.random() * 1.5; 
-                    p.vx = (Math.random() - 0.5) * 4.0; // Strong horizontal scatter to "mix"
+                    p.vy = 0.5 + Math.random() * 2.0; 
+                    p.vx = (Math.random() - 0.5) * 8.0; // Scatter MUCH more widely across the screen
                     p.life = 0;
                     p.swayOffset = Math.random() * Math.PI * 2;
                 }
                 
-                p.life += 0.015;
+                p.life += 0.008; // Slower fade so they stay on screen longer
                 
                 // Sway (ゆらゆら) and mix
-                p.vx += Math.sin(p.life * 15 + p.swayOffset) * 0.1; 
+                p.vx += Math.sin(p.life * 25 + p.swayOffset) * 0.2; 
                 
                 // Strong updraft catches them and blows them upwards (したから上に舞い上がる)
-                p.vy -= 0.15; 
+                p.vy -= 0.12; 
                 
-                p.vx *= 0.98;
+                p.vx *= 0.99; // Less friction so they travel further
                 p.vy *= 0.98;
                 
                 p.x += p.vx;

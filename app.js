@@ -195,6 +195,13 @@ function initUI() {
     document.getElementById('fontSelect').addEventListener('change', e => state.fontFamily = e.target.value);
     document.getElementById('colorInput').addEventListener('input', e => state.color = e.target.value);
     document.getElementById('bgColorInput').addEventListener('input', e => state.bgColor = e.target.value);
+    document.getElementById('transparentBgToggle').addEventListener('change', e => state.transparentBg = e.target.checked);
+    document.getElementById('greenScreenBtn').addEventListener('click', () => {
+        state.bgColor = '#00FF00';
+        document.getElementById('bgColorInput').value = '#00FF00';
+        state.transparentBg = false;
+        document.getElementById('transparentBgToggle').checked = false;
+    });
     
     bindUI('sizeSlider', 'size', parseInt, 'sizeBox');
     bindUI('kerningSlider', 'kerning', parseInt, 'kerningBox');
@@ -221,28 +228,59 @@ function initUI() {
     bindUI('psdScale', 'psdScale', parseFloat);
     
     // PSD Layer Parsing
-    document.getElementById('psdInput').addEventListener('change', e => {
-        const file = e.target.files[0];
-        if (!file) return;
+    document.getElementById('applyPsdBtn').addEventListener('click', () => {
+        const fileInput = document.getElementById('psdInput');
+        const file = fileInput.files[0];
+        const btn = document.getElementById('applyPsdBtn');
+        if (!file) {
+            alert('PSDファイルが選択されていません。先にファイルを選んでください！');
+            return;
+        }
+        
+        btn.textContent = 'LOADING...';
+        btn.disabled = true;
+        
         const reader = new FileReader();
         reader.onload = (event) => {
             try {
                 const psd = window.agPsd.readPsd(event.target.result);
                 state.psdLayers = [];
-                // If it has children, extract layers. Otherwise use the main composite.
-                if (psd.children && psd.children.length > 0) {
-                    psd.children.forEach(layer => {
-                        if (layer.canvas) {
+                
+                const extractCanvases = (layers) => {
+                    layers.forEach(layer => {
+                        if (layer.canvas && layer.canvas.width > 0 && layer.canvas.height > 0) {
                             state.psdLayers.push(layer.canvas);
                         }
+                        if (layer.children && layer.children.length > 0) {
+                            extractCanvases(layer.children);
+                        }
                     });
+                };
+                
+                if (psd.children && psd.children.length > 0) {
+                    extractCanvases(psd.children);
                 }
-                // Fallback to composite if no individual canvases found
-                if (state.psdLayers.length === 0 && psd.canvas) {
+                
+                if (state.psdLayers.length === 0 && psd.canvas && psd.canvas.width > 0 && psd.canvas.height > 0) {
                     state.psdLayers.push(psd.canvas);
                 }
+                
+                if (state.psdLayers.length === 0) {
+                    alert('PSDから有効なレイヤー（画像データ）を見つけられませんでした。');
+                    btn.textContent = 'ERROR';
+                    setTimeout(() => { btn.textContent = 'APPLY'; btn.disabled = false; }, 2000);
+                    return;
+                }
+                
+                alert(`PSDを読み込みました！ ${state.psdLayers.length} 枚のレイヤー（コマ）としてアニメーションします。`);
+                
+                btn.textContent = 'LOADED';
+                setTimeout(() => { btn.textContent = 'APPLY'; btn.disabled = false; }, 2000);
             } catch (err) {
                 console.error("PSD Error:", err);
+                alert("PSDファイルの読み込みに失敗しました: " + err.message);
+                btn.textContent = 'ERROR';
+                setTimeout(() => { btn.textContent = 'APPLY'; btn.disabled = false; }, 2000);
             }
         };
         reader.readAsArrayBuffer(file);
@@ -328,7 +366,24 @@ let recordedChunks = [];
 
 function startRecording() {
     const stream = canvas.captureStream(state.fps);
-    const options = { mimeType: 'video/webm;codecs=vp9' };
+    let options = {};
+    let ext = 'webm';
+    let mime = 'video/webm';
+
+    if (MediaRecorder.isTypeSupported('video/mp4')) {
+        // Safari supports mp4, which is required for saving to iOS Camera Roll
+        options = { mimeType: 'video/mp4' };
+        ext = 'mp4';
+        mime = 'video/mp4';
+    } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+        options = { mimeType: 'video/webm;codecs=vp9' };
+        ext = 'webm';
+        mime = 'video/webm';
+    } else {
+        options = { mimeType: 'video/webm' };
+        ext = 'webm';
+        mime = 'video/webm';
+    }
     
     try {
         mediaRecorder = new MediaRecorder(stream, options);
@@ -336,8 +391,8 @@ function startRecording() {
         console.error('Exception while creating MediaRecorder:', e);
         try {
             mediaRecorder = new MediaRecorder(stream);
-        } catch (e) {
-            console.error('Failed to create MediaRecorder:', e);
+        } catch (e3) {
+            console.error('Failed to create MediaRecorder:', e3);
             alert('Your browser does not support MediaRecorder API.');
             return;
         }
@@ -350,13 +405,13 @@ function startRecording() {
     };
 
     mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        const blob = new Blob(recordedChunks, { type: mime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         document.body.appendChild(a);
         a.style = 'display: none';
         a.href = url;
-        a.download = 'motion_typography_export.webm';
+        a.download = `motion_typography_export.${ext}`;
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
@@ -377,13 +432,24 @@ function stopRecording() {
     }
 }
 
-function easeOutBounce(x) {
-    const n1 = 7.5625;
-    const d1 = 2.75;
-    if (x < 1 / d1) return n1 * x * x;
-    else if (x < 2 / d1) return n1 * (x -= 1.5 / d1) * x + 0.75;
-    else if (x < 2.5 / d1) return n1 * (x -= 2.25 / d1) * x + 0.9375;
-    else return n1 * (x -= 2.625 / d1) * x + 0.984375;
+// --- Cinematic Easing Functions ---
+// Smooth deceleration (sliding in) without overshoot
+function easeOutExpo(x) {
+    return x === 1 ? 1 : 1 - Math.pow(2, -10 * x);
+}
+// Smooth acceleration (sliding out) without anticipation
+function easeInExpo(x) {
+    return x === 0 ? 0 : Math.pow(2, 10 * x - 10);
+}
+// Realistic momentum/inertia (sliding in with overshoot)
+function easeOutBack(x, overshoot) {
+    const c3 = overshoot + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + overshoot * Math.pow(x - 1, 2);
+}
+// Realistic momentum/inertia (sliding out with anticipation)
+function easeInBack(x, overshoot) {
+    const c3 = overshoot + 1;
+    return c3 * x * x * x - overshoot * x * x;
 }
 
 function calculateSlideOffset(timeMs) {
@@ -408,12 +474,19 @@ function calculateSlideOffset(timeMs) {
         else if (t < moveMs + pauseMs) { phase = 1; progress = 1; }
         else { phase = 2; progress = (t - moveMs - pauseMs) / moveMs; }
 
-        if (state.inertiaEnabled && state.inertia > 0 && phase === 0) {
-            const bounceWeight = Math.min(1, state.inertia / 3);
-            progress = progress * (1 - bounceWeight) + easeOutBounce(progress) * bounceWeight;
-        }
-        if (state.inertiaEnabled && state.inertia > 0 && phase === 2) {
-            progress = Math.pow(progress, 1 + state.inertia);
+        // Apply extremely smooth cinematic easings instead of rigid linear movement
+        if (phase === 0) {
+            if (state.inertiaEnabled && state.inertia > 0) {
+                progress = easeOutBack(progress, state.inertia * 1.2);
+            } else {
+                progress = easeOutExpo(progress);
+            }
+        } else if (phase === 2) {
+            if (state.inertiaEnabled && state.inertia > 0) {
+                progress = easeInBack(progress, state.inertia * 1.2);
+            } else {
+                progress = easeInExpo(progress);
+            }
         }
 
         const mode = state.slideAnimation;
@@ -482,23 +555,49 @@ function loop(timestamp) {
             });
             if (Math.random() < (0.3 * baseProb)) {
                 const words = state.text.split('\n');
-                const numPops = Math.random() < 0.5 ? 1 : 2;
-                for (let p = 0; p < numPops; p++) {
-                    const lineIdx = Math.floor(Math.random() * words.length);
-                    const charIdx = Math.floor(Math.random() * words[lineIdx].length);
-                    const charKey = `${lineIdx}_${charIdx}`;
-                    if (!glitchPopBActive.find(x => x.charKey === charKey)) {
-                        const scale = Math.random() < 0.85
-                            ? 1.5 + Math.random() * 2.0
-                            : 0.15 + Math.random() * 0.25;
+                
+                // Collect all valid, visible character keys
+                let visibleChars = [];
+                words.forEach((word, lineIdx) => {
+                    for (let charIdx = 0; charIdx < word.length; charIdx++) {
+                        if (word[charIdx] !== ' ') {
+                            visibleChars.push({ lineIdx, charIdx, key: `${lineIdx}_${charIdx}` });
+                        }
+                    }
+                });
+
+                if (visibleChars.length > 0) {
+                    const numPops = Math.random() < 0.5 ? 1 : 2;
+                    for (let p = 0; p < numPops; p++) {
+                        if (!state.recentlyBugged) state.recentlyBugged = [];
                         
-                        // Force a pixel font
-                        const font = glitchPopFonts[Math.floor(Math.random() * glitchPopFonts.length)];
+                        let candidates = visibleChars.filter(c => !glitchPopBActive.find(x => x.charKey === c.key));
+                        let freshCandidates = candidates.filter(c => !state.recentlyBugged.includes(c.key));
                         
-                        glitchPopBActive.push({
-                            charKey, scale, font,
-                            framesLeft: 2 + Math.floor(Math.random() * 3)
-                        });
+                        let chosen = null;
+                        if (freshCandidates.length > 0) {
+                            chosen = freshCandidates[Math.floor(Math.random() * freshCandidates.length)];
+                        } else if (candidates.length > 0) {
+                            chosen = candidates[Math.floor(Math.random() * candidates.length)];
+                        }
+                        
+                        if (chosen) {
+                            const scale = Math.random() < 0.85
+                                ? 1.5 + Math.random() * 2.0
+                                : 0.15 + Math.random() * 0.25;
+                            
+                            const font = glitchPopFonts[Math.floor(Math.random() * glitchPopFonts.length)];
+                            
+                            glitchPopBActive.push({
+                                charKey: chosen.key, scale, font,
+                                framesLeft: 2 // Exactly 2 frames!
+                            });
+                            
+                            state.recentlyBugged.push(chosen.key);
+                            if (state.recentlyBugged.length > 4) {
+                                state.recentlyBugged.shift();
+                            }
+                        }
                     }
                 }
             }
@@ -511,8 +610,14 @@ function loop(timestamp) {
 }
 
 function render() {
-    ctx.fillStyle = state.bgColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (state.transparentBg) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        canvas.style.backgroundColor = 'transparent';
+    } else {
+        ctx.fillStyle = state.bgColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        canvas.style.backgroundColor = state.bgColor;
+    }
 
     if (state.dissolveType === 'water' && state.isDissolving) {
         // Water Grid: draw to offscreen, then draw back with sine distortion
@@ -586,8 +691,8 @@ function renderCore(context, transparentBg) {
 
     // --- Render PSD Layer (Jitter) ---
     if (state.psdLayers.length > 0) {
-        // Cycle layer every 3 frames for hand-drawn jitter feel
-        const layerIndex = Math.floor(frameCount / 3) % state.psdLayers.length;
+        // Cycle layer every 5 frames for hand-drawn jitter feel (12fps style playback at 60fps)
+        const layerIndex = Math.floor(frameCount / 5) % state.psdLayers.length;
         const currentLayer = state.psdLayers[layerIndex];
         
         context.save();
@@ -716,12 +821,9 @@ function renderCore(context, transparentBg) {
                     }
                     isMosaicPop = true;
                     popObj = pop;
-                } else if (state.chaosMode === 'size' && (currentSize / state.size) > 1.2) {
-                    // "なるべく、大きくなった文字がグリッチかかって欲しい"
-                    const r = getRandom(`popb_size_${state.seed}_${lineIndex}_${i}_${Math.floor(Date.now() / 100)}`);
-                    if (r < (state.glitchPopBIntensity / 100) * 5.0) { // Much higher chance for large characters
-                        isMosaicPop = true;
-                    }
+                } else if ((currentSize / state.size) > 1.2) {
+                    // "大きくなった文字が必ずピクセル化"
+                    isMosaicPop = true;
                 }
             }
 
@@ -793,91 +895,86 @@ function renderCore(context, transparentBg) {
         const boxW = data.width + intensity * 4;
         const boxH = cSize * 2.5 + intensity * 4;
         
-        // 1. Create blurred stroke and fill
-        const tempStroke = document.createElement('canvas');
-        tempStroke.width = boxW; tempStroke.height = boxH;
-        const tsCtx = tempStroke.getContext('2d');
-        tsCtx.font = data.fontString;
-        tsCtx.textAlign = 'center'; tsCtx.textBaseline = 'middle'; tsCtx.lineJoin = 'round';
         // The block size uses Glitch Pop B's pixel slider
         const pSize = Math.max(2, state.glitchPopBPixelSize); 
 
-        // Use a blur proportional to pSize to spread the alpha for stochastic dithering of the edges
-        const strokeBlurAmount = Math.max(1, Math.floor(pSize / 3)); 
-        tsCtx.filter = `blur(${strokeBlurAmount}px)`;
-        const cx = boxW / 2; const cy = boxH / 2;
-        if (state.outlineWidth > 0 || state.outlineOnly) {
-            // Scale the outline width proportionally to the character's enlarged size
-            // Scale the outline width proportionally, but ensure it is at least thick enough to survive downsampling
-            tsCtx.lineWidth = Math.max(state.outlineWidth * (cSize / state.size), pSize * 0.4);
-            tsCtx.strokeStyle = state.color;
-            tsCtx.strokeText(data.char, cx, cy);
-        }
-        // If mergeOverlap is off, the final letter should be solid (not hollow). 
-        // Thus, the stroke canvas must ALSO contain the fill!
-        if (!state.outlineOnly && !state.mergeOverlap) {
-            tsCtx.fillStyle = state.color;
-            tsCtx.fillText(data.char, cx, cy);
-        }
-
-        // 2. Downscale into tiny canvas
         const tinyW = Math.max(1, Math.floor(boxW / pSize));
         const tinyH = Math.max(1, Math.floor(boxH / pSize));
-        
-        const tinyStroke = document.createElement('canvas');
-        tinyStroke.width = tinyW; tinyStroke.height = tinyH;
-        const tinyStrokeCtx = tinyStroke.getContext('2d');
-        tinyStrokeCtx.drawImage(tempStroke, 0, 0, tinyW, tinyH);
+        // "巨大化が起きた一瞬、文字に強いブラー（ボケ）をかける"
+        // ボケ幅（＝ノイズの散らばる広さ）をintensityスライダーで制御できるようにします
+        const blurAmount = Math.max(pSize, intensity * 1.5);
+        const cx = boxW / 2; const cy = boxH / 2;
 
-        // 3. THRESHOLD PASS
-        // For the stroke/final display, use STOCHASTIC DITHERING.
-        // This converts anti-aliased edge pixels into scattered square dots ("チリチリ" effect)
-        const applyStrokeThreshold = (ctx) => {
+        // Threshold function to ensure NO semi-transparent dots exist (全てベタ).
+        // Converts soft blurred alpha into a solid, noisy dithered edge (zaza noise),
+        // while guaranteeing the core skeletal structure remains perfectly solid.
+        const makeSolidDots = (tinyCanvas) => {
+            const ctx = tinyCanvas.getContext('2d');
             const imgData = ctx.getImageData(0, 0, tinyW, tinyH);
             const d = imgData.data;
             for (let i = 0; i < d.length; i += 4) {
                 const a = d[i + 3];
-                if (a > 5) {
-                    // Use alpha-based probability with a 1.5x boost.
-                    // This ensures the solid interior remains 100% solid blocks,
-                    // while the blurred edges become uniformly scattered dots without disappearing.
-                    if (Math.random() * 255 < a * 1.5) {
-                        d[i + 3] = 255;
-                    } else {
-                        d[i + 3] = 0;
-                    }
-                } else {
-                    d[i + 3] = 0;
+                if (a === 255) {
+                    // Core skeleton (from the unblurred pass): perfectly solid
+                    d[i + 3] = 255;
+                } else if (a > 0) {
+                    // Blurred halo: Dithered into scattered, strictly solid dots (バリ)
+                    d[i + 3] = (Math.random() * 255 < a) ? 255 : 0;
                 }
             }
             ctx.putImageData(imgData, 0, 0);
         };
-        
-        applyStrokeThreshold(tinyStrokeCtx);
 
-        // 4. Upscale back to final canvas with ZAZA horizontal shifting ("ザザっザザって")
-        const finalStroke = document.createElement('canvas');
-        finalStroke.width = boxW; finalStroke.height = boxH;
-        const fsCtx = finalStroke.getContext('2d');
-        fsCtx.imageSmoothingEnabled = false;
-
-        // Shift height matches the pixel size, so we shift row by row of pixels!
-        for (let tinyY = 0; tinyY < tinyH; tinyY++) {
-            let shiftX = 0;
-            // 70% chance to shift this row of pixels horizontally (breaks vertical lines)
-            if (Math.random() < 0.7) { 
-                // Random shift between -intensity and +intensity
-                shiftX = (Math.random() - 0.5) * intensity * 2.0; 
-            }
-
-            const drawY = tinyY * pSize;
+        // 1. Generate Mosaic Stroke
+        if (state.outlineWidth > 0 || state.outlineOnly) {
+            const tempStroke = document.createElement('canvas');
+            tempStroke.width = boxW; tempStroke.height = boxH;
+            const tsCtx = tempStroke.getContext('2d');
+            tsCtx.font = data.fontString;
+            tsCtx.textAlign = 'center'; tsCtx.textBaseline = 'middle'; tsCtx.lineJoin = 'round';
+            tsCtx.lineWidth = Math.max(state.outlineWidth * (cSize / state.size), 2);
+            tsCtx.strokeStyle = state.color;
             
-            // Draw this 1-pixel high row from the tiny canvas, stretched horizontally to boxW, vertically to pSize
-            fsCtx.drawImage(tinyStroke, 0, tinyY, tinyW, 1, shiftX, drawY, boxW, pSize);
+            // Step 1: Draw the heavily blurred halo
+            tsCtx.filter = `blur(${blurAmount}px)`;
+            tsCtx.strokeText(data.char, cx, cy);
+            
+            // Step 2: Draw the unblurred, perfectly solid core exactly on top
+            tsCtx.filter = 'none';
+            tsCtx.strokeText(data.char, cx, cy);
+
+            const tinyStroke = document.createElement('canvas');
+            tinyStroke.width = tinyW; tinyStroke.height = tinyH;
+            tinyStroke.getContext('2d').drawImage(tempStroke, 0, 0, tinyW, tinyH);
+            makeSolidDots(tinyStroke); // Force all dots to be 100% solid (ベタ)
+            data.mosaicStroke = tinyStroke;
         }
 
-        data.mosaicCanvas = finalStroke;
-        data.mosaicBox = { w: boxW, h: boxH, tw: boxW, th: boxH };
+        // 2. Generate Mosaic Fill
+        if (!state.outlineOnly) {
+            const tempFill = document.createElement('canvas');
+            tempFill.width = boxW; tempFill.height = boxH;
+            const tfCtx = tempFill.getContext('2d');
+            tfCtx.font = data.fontString;
+            tfCtx.textAlign = 'center'; tfCtx.textBaseline = 'middle'; tfCtx.lineJoin = 'round';
+            tfCtx.fillStyle = state.color;
+
+            // Step 1: Draw the heavily blurred halo
+            tfCtx.filter = `blur(${blurAmount}px)`;
+            tfCtx.fillText(data.char, cx, cy);
+
+            // Step 2: Draw the unblurred, perfectly solid core exactly on top
+            tfCtx.filter = 'none';
+            tfCtx.fillText(data.char, cx, cy);
+
+            const tinyFill = document.createElement('canvas');
+            tinyFill.width = tinyW; tinyFill.height = tinyH;
+            tinyFill.getContext('2d').drawImage(tempFill, 0, 0, tinyW, tinyH);
+            makeSolidDots(tinyFill); // Force all dots to be 100% solid (ベタ)
+            data.mosaicFill = tinyFill;
+        }
+
+        data.mosaicBox = { w: boxW, h: boxH, tw: tinyW, th: tinyH };
     });
 
     // Step 2: Render All Passes
@@ -886,11 +983,7 @@ function renderCore(context, transparentBg) {
             
             targetCtx.save();
             
-            if (state.isDissolving && state.dissolveType === 'pop_burst') {
-                targetCtx.globalAlpha = 1 - Math.min(1, state.dissolveProgress);
-            }
-            
-            targetCtx.translate(data.x, data.y);
+            targetCtx.translate(Math.round(data.x), Math.round(data.y));
             if (state.charSpin !== 0) targetCtx.rotate(state.charSpin * Math.PI / 180);
 
             targetCtx.font = data.fontString;
@@ -908,9 +1001,11 @@ function renderCore(context, transparentBg) {
             targetCtx.fillStyle = state.color;
 
             if (!isFillPass) {
-                if (data.mosaicCanvas) {
+                if (data.mosaicStroke) {
                     targetCtx.imageSmoothingEnabled = false;
-                    targetCtx.drawImage(data.mosaicCanvas, 0, 0, data.mosaicBox.tw, data.mosaicBox.th, -data.mosaicBox.w/2, -data.mosaicBox.h/2, data.mosaicBox.w, data.mosaicBox.h);
+                    const mw = Math.round(data.mosaicBox.w);
+                    const mh = Math.round(data.mosaicBox.h);
+                    targetCtx.drawImage(data.mosaicStroke, 0, 0, data.mosaicBox.tw, data.mosaicBox.th, Math.round(-mw/2), Math.round(-mh/2), mw, mh);
                     targetCtx.imageSmoothingEnabled = true;
                 } else if (state.outlineWidth > 0 || state.outlineOnly) {
                     targetCtx.strokeText(data.char, 0, 0);
@@ -918,15 +1013,26 @@ function renderCore(context, transparentBg) {
             } else if (isFillPass && !state.outlineOnly) {
                 if (state.mergeOverlap && state.outlineWidth > 0) {
                     targetCtx.globalCompositeOperation = 'destination-out';
-                    // Always use the smooth text as the eraser to precisely hollow out the inside,
-                    // allowing the scattered pixel dots on the outer boundary to survive unharmed.
-                    targetCtx.fillText(data.char, 0, 0);
+                    if (data.mosaicFill) {
+                        targetCtx.imageSmoothingEnabled = false;
+                        const mw = Math.round(data.mosaicBox.w);
+                        const mh = Math.round(data.mosaicBox.h);
+                        // Erase using the pixelated fill, ensuring the pixelated outline isn't cut with a smooth curve!
+                        targetCtx.drawImage(data.mosaicFill, 0, 0, data.mosaicBox.tw, data.mosaicBox.th, Math.round(-mw/2), Math.round(-mh/2), mw, mh);
+                        targetCtx.imageSmoothingEnabled = true;
+                    } else {
+                        targetCtx.fillText(data.char, 0, 0);
+                    }
                     targetCtx.globalCompositeOperation = 'source-over';
                 } else {
-                    if (!data.mosaicCanvas) {
+                    if (data.mosaicFill) {
+                        targetCtx.imageSmoothingEnabled = false;
+                        const mw = Math.round(data.mosaicBox.w);
+                        const mh = Math.round(data.mosaicBox.h);
+                        targetCtx.drawImage(data.mosaicFill, 0, 0, data.mosaicBox.tw, data.mosaicBox.th, Math.round(-mw/2), Math.round(-mh/2), mw, mh);
+                        targetCtx.imageSmoothingEnabled = true;
+                    } else {
                         targetCtx.fillText(data.char, 0, 0);
-                    } else if (!state.outlineOnly && !(state.mergeOverlap && state.outlineWidth > 0)) {
-                        // If it's solid mosaic, it was already drawn entirely in the stroke pass!
                     }
                 }
             }
@@ -968,7 +1074,13 @@ function renderCore(context, transparentBg) {
         };
         
         context.save();
-        context.setTransform(1, 0, 0, 1, 0, 0); // Reset transform for direct drawing
+        // Reset transform to draw tempCanvas at 0,0 relative to the shifted coordinate system
+        context.setTransform(1, 0, 0, 1, 0, 0); 
+        
+        // We MUST apply the slide here, so the already-tinted full canvas shifts off-screen smoothly 
+        // without its internal pixels being clipped by the rgbBaseCanvas boundaries!
+        context.translate(slide.x, slide.y);
+        
         context.globalCompositeOperation = 'screen';
         tintAndDraw('blue', -dist);
         tintAndDraw('#00ff00', 0);

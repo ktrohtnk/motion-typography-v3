@@ -390,8 +390,8 @@ function initUI() {
         state.dissolveType = document.getElementById('smokeTypeSelect').value;
         state.dissolveParticles = [];
         
-        // If Sand Crumble, Ash Blow, or Detergent Whirlpool, generate particles
-        if (state.dissolveType === 'sand' || state.dissolveType === 'ash' || state.dissolveType === 'water') {
+        // If Sand Crumble, Ash Blow, Water Updraft, or Detergent Stir, generate particles
+        if (state.dissolveType === 'sand' || state.dissolveType === 'ash' || state.dissolveType === 'water' || state.dissolveType === 'detergent_stir') {
             generateSandParticles();
         }
     });
@@ -656,7 +656,71 @@ function render() {
         canvas.style.backgroundColor = state.bgColor;
     }
 
-    if (state.dissolveType === 'water' && state.isDissolving) {
+    if (state.dissolveType === 'detergent_stir' && state.isDissolving) {
+        // Solid Detergent Stir (Shrink from outside in, scatter everywhere omnidirectionally, solid dots)
+        offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
+        renderCore(offCtx, true); // Draw core text
+        
+        const maxDist = Math.max(canvas.width, canvas.height) / 2;
+        const maskProg = Math.min(1, state.dissolveProgress / 0.8);
+        const currentRadius = maxDist * (1 - maskProg);
+        
+        offCtx.save();
+        offCtx.globalCompositeOperation = 'destination-in';
+        offCtx.filter = 'blur(10px)'; // soft edge for breaking off
+        offCtx.beginPath();
+        offCtx.arc(offCanvas.width/2, offCanvas.height/2, currentRadius, 0, Math.PI*2);
+        offCtx.fill();
+        offCtx.restore();
+        
+        ctx.drawImage(offCanvas, 0, 0); // Draw the partially melted text
+        
+        ctx.save();
+        ctx.translate(canvas.width/2, canvas.height/2);
+        
+        state.dissolveParticles.forEach(p => {
+            const dist = Math.sqrt(p.x*p.x + p.y*p.y);
+            // Particle activates when the shrinking text radius passes it
+            if (dist > currentRadius - 15) {
+                if (!p.active) {
+                    p.active = true;
+                    const angle = Math.atan2(p.y, p.x);
+                    // Stirring mix: Tangential velocity + Strong outward scatter (wind blowing everywhere)
+                    p.vx = Math.cos(angle + Math.PI/2) * 8 + Math.cos(angle) * (6 + Math.random() * 8);
+                    p.vy = Math.sin(angle + Math.PI/2) * 8 + Math.sin(angle) * (6 + Math.random() * 8);
+                    
+                    // Add explosive wind/turbulence noise
+                    p.vx += (Math.random() - 0.5) * 15.0;
+                    p.vy += (Math.random() - 0.5) * 15.0;
+                    
+                    p.life = 0;
+                }
+                
+                p.life += 0.015; // Shrink speed
+                
+                // Continuous whirlpool force (mixing)
+                const angle = Math.atan2(p.y, p.x);
+                p.vx += Math.cos(angle + Math.PI/2) * 0.5;
+                p.vy += Math.sin(angle + Math.PI/2) * 0.5;
+                
+                p.vx *= 0.96; // Water drag / friction
+                p.vy *= 0.96;
+                
+                p.x += p.vx;
+                p.y += p.vy;
+                
+                // Solid dots only, no transparency, shrinking to 0
+                const size = Math.max(0, 4 * (1 - p.life)); 
+                if (size > 0.5) {
+                    ctx.globalAlpha = 1.0;
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(p.x, p.y, size, size);
+                }
+            }
+        });
+        ctx.restore();
+        
+    } else if (state.dissolveType === 'water' && state.isDissolving) {
         // Solid Particle Dissolve (Crumble from both ends, solid dots flutter upwards)
         offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
         renderCore(offCtx, true); // Draw core text

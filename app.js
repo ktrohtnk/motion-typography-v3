@@ -654,36 +654,41 @@ function render() {
     }
 
     if (state.dissolveType === 'water' && state.isDissolving) {
-        // Detergent Dissolve (Crumble from ends, sway upwards)
+        // Mist Dissolve (Crumble from bottom up, heavy initial drop, upward draft, fog dissipation)
         offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
         renderCore(offCtx, true); // Draw core text
         
-        // Find the actual width of the text so it starts crumbling immediately
+        // Find the actual height of the text so it starts crumbling immediately from the bottom
         if (!state.waterMaxDist && state.dissolveParticles.length > 0) {
-            let maxX = 0;
+            let maxY = -Infinity;
+            let minY = Infinity;
             state.dissolveParticles.forEach(p => {
-                if (Math.abs(p.x) > maxX) maxX = Math.abs(p.x);
+                if (p.y > maxY) maxY = p.y;
+                if (p.y < minY) minY = p.y;
             });
-            state.waterMaxDist = maxX + 10;
+            state.waterMaxY = maxY + 10;
+            state.waterMinY = minY - 10;
+            state.waterHeight = state.waterMaxY - state.waterMinY;
         }
-        const maxDist = state.waterMaxDist || (canvas.width / 2);
         
-        // The mask shrinks horizontally from both ends.
+        // The mask shrinks vertically from bottom to top.
         const maskProg = Math.min(1, state.dissolveProgress / 1.2);
-        const currentHalfWidth = maxDist * (1 - maskProg);
+        // currentY represents the boundary line. Everything BELOW this line is erased.
+        const currentY = state.waterMaxY - (state.waterHeight * maskProg);
         
-        // Erase the ends of the text smoothly
+        // Erase the bottom of the text smoothly
         offCtx.save();
         offCtx.globalCompositeOperation = 'destination-in';
         offCtx.filter = 'blur(15px)';
         
-        if (currentHalfWidth > 0) {
-            // Draw a rectangle in the center that shrinks
+        if (maskProg < 1.0) {
+            // Draw a rectangle from the top of the canvas down to currentY
+            // Since currentY is relative to center, we map it to offCanvas coordinates
             offCtx.fillRect(
-                offCanvas.width/2 - currentHalfWidth, 
                 0, 
-                currentHalfWidth * 2, 
-                offCanvas.height
+                0, 
+                offCanvas.width, 
+                (offCanvas.height/2) + currentY
             );
         } else {
             // Guarantee all text is erased when mask finishes
@@ -698,38 +703,40 @@ function render() {
         ctx.translate(canvas.width/2, canvas.height/2);
         
         state.dissolveParticles.forEach(p => {
-            const distX = Math.abs(p.x);
-            // Particle activates when the shrinking width passes it
-            if (distX > currentHalfWidth - 15) {
+            // Particle activates when the crumbling boundary passes its Y position
+            if (p.y > currentY - 15) {
                 if (!p.active) {
                     p.active = true;
-                    // Initial gentle upward velocity
-                    p.vy = -0.5 - Math.random() * 1.5;
-                    p.vx = (Math.random() - 0.5) * 1.0;
+                    // "もっと重力を感じる" - Initial heavy drop down
+                    p.vy = 1.0 + Math.random() * 1.5; 
+                    p.vx = (Math.random() - 0.5) * 1.5;
                     p.life = 0;
-                    p.swayOffset = Math.random() * Math.PI * 2; // Randomize sway phase
+                    p.swayOffset = Math.random() * Math.PI * 2;
                 }
                 
-                p.life += 0.015; // Fade over time
+                p.life += 0.012; // Fade over time
                 
-                // Sway gently left and right while floating up
-                p.vx += Math.sin(p.life * 15 + p.swayOffset) * 0.05; 
-                p.vy -= 0.02; // Buoyancy (accelerate upwards gently)
+                // Sway gently left and right
+                p.vx += Math.sin(p.life * 15 + p.swayOffset) * 0.04; 
                 
-                // Fluid resistance (prevent it from going too fast)
-                p.vx *= 0.98;
-                p.vy *= 0.98;
+                // "舞い上がって空気に溶け込んでいく" - Strong updraft catches the heavy particles
+                p.vy -= 0.15; 
+                
+                // Fluid resistance
+                p.vx *= 0.97;
+                p.vy *= 0.97;
                 
                 p.x += p.vx;
                 p.y += p.vy;
                 
                 const alpha = Math.max(0, 1 - p.life);
                 if (alpha > 0) {
-                    ctx.globalAlpha = alpha * 0.8; // Watery transparency
+                    // "霧散して消えて欲しい" - Soft, highly transparent misty blob
+                    ctx.globalAlpha = Math.pow(alpha, 1.5) * 0.6; 
                     ctx.fillStyle = p.color;
                     ctx.beginPath();
-                    // Particles expand slightly as they dissolve (like bubbles)
-                    ctx.arc(p.x, p.y, 2 + p.life * 4, 0, Math.PI*2);
+                    // Expands significantly from 2px to ~15px to look like dissipating fog
+                    ctx.arc(p.x, p.y, 2 + p.life * 15, 0, Math.PI*2);
                     ctx.fill();
                 }
             }

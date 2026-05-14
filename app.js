@@ -668,9 +668,14 @@ function render() {
         offCtx.save();
         offCtx.globalCompositeOperation = 'destination-in';
         offCtx.filter = 'blur(10px)'; // soft edge for breaking off
-        offCtx.beginPath();
-        offCtx.arc(offCanvas.width/2, offCanvas.height/2, currentRadius, 0, Math.PI*2);
-        offCtx.fill();
+        
+        if (currentRadius > 0) {
+            offCtx.beginPath();
+            offCtx.arc(offCanvas.width/2, offCanvas.height/2, currentRadius, 0, Math.PI*2);
+            offCtx.fill();
+        } else {
+            offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height); // Guarantee text disappears
+        }
         offCtx.restore();
         
         ctx.drawImage(offCanvas, 0, 0); // Draw the partially melted text
@@ -684,32 +689,30 @@ function render() {
             if (dist > currentRadius - 15) {
                 if (!p.active) {
                     p.active = true;
-                    const angle = Math.atan2(p.y, p.x);
-                    // Stirring mix: Tangential velocity + Strong outward scatter (wind blowing everywhere)
-                    p.vx = Math.cos(angle + Math.PI/2) * 8 + Math.cos(angle) * (6 + Math.random() * 8);
-                    p.vy = Math.sin(angle + Math.PI/2) * 8 + Math.sin(angle) * (6 + Math.random() * 8);
-                    
-                    // Add explosive wind/turbulence noise
-                    p.vx += (Math.random() - 0.5) * 15.0;
-                    p.vy += (Math.random() - 0.5) * 15.0;
-                    
+                    // Initial burst: completely random and violent
+                    p.vx = (Math.random() - 0.5) * 20.0;
+                    p.vy = (Math.random() - 0.5) * 20.0;
                     p.life = 0;
                 }
                 
-                p.life += 0.015; // Shrink speed
+                p.life += 0.008; // Slower shrink so they stay visible as a storm longer
                 
-                // Continuous whirlpool force (mixing)
+                // Continuous violent sandstorm turbulence
+                p.vx += (Math.random() - 0.5) * 6.0;
+                p.vy += (Math.random() - 0.5) * 6.0;
+                
+                // Slight outward wind to keep them expanding
                 const angle = Math.atan2(p.y, p.x);
-                p.vx += Math.cos(angle + Math.PI/2) * 0.5;
-                p.vy += Math.sin(angle + Math.PI/2) * 0.5;
+                p.vx += Math.cos(angle) * 0.5;
+                p.vy += Math.sin(angle) * 0.5;
                 
-                p.vx *= 0.96; // Water drag / friction
-                p.vy *= 0.96;
+                p.vx *= 0.95; // Friction keeps the storm contained but chaotic
+                p.vy *= 0.95;
                 
                 p.x += p.vx;
                 p.y += p.vy;
                 
-                // Solid dots only, no transparency, shrinking to 0
+                // Solid dots only, shrinking to 0
                 const size = Math.max(0, 4 * (1 - p.life)); 
                 if (size > 0.5) {
                     ctx.globalAlpha = 1.0;

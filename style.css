@@ -179,10 +179,10 @@ input[type="text"]:focus, textarea:focus, select:focus {
 .btn.toggle-btn {
     background: #FFFFFF;
     flex: 1;
-    opacity: 0.6;
-    box-shadow: none;
-    border-color: #CCC;
-    color: #888;
+    opacity: 1;
+    box-shadow: 0 4px 0px var(--border-color);
+    border-color: var(--border-color);
+    color: var(--text-color);
 }
 .btn.toggle-btn.active {
     opacity: 1;

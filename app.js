@@ -19,7 +19,6 @@ const state = {
     kerning: 0,
     lineHeight: 1.1,
     outlineOnly: false,
-    mergeOverlap: false,
     outlineWidth: 5,
     
     globalSpin: 0,
@@ -208,10 +207,11 @@ function initUI() {
     bindUI('lineHeightSlider', 'lineHeight', parseFloat, 'lineHeightBox');
     bindUI('outlineWidthSlider', 'outlineWidth', parseInt, 'outlineWidthBox');
     
-    const outBtn = document.getElementById('outlineOnlyBtn');
-    outBtn.addEventListener('click', () => { state.outlineOnly = !state.outlineOnly; outBtn.classList.toggle('active', state.outlineOnly); });
-    const mergeBtn = document.getElementById('mergeOverlapBtn');
-    mergeBtn.addEventListener('click', () => { state.mergeOverlap = !state.mergeOverlap; mergeBtn.classList.toggle('active', state.mergeOverlap); });
+    const outlineBtn = document.getElementById('outlineOnlyBtn');
+    outlineBtn.addEventListener('click', () => { 
+        state.outlineOnly = !state.outlineOnly; 
+        outlineBtn.classList.toggle('active', state.outlineOnly); 
+    });
     
     bindUI('globalSpin', 'globalSpin', parseInt, 'globalSpinVal');
     bindUI('charSpin', 'charSpin', parseInt, 'charSpinVal');
@@ -286,20 +286,54 @@ function initUI() {
         reader.readAsArrayBuffer(file);
     });
 
-    // PSD Drag
+    // PSD & Object Drag (Mouse & Touch)
     let isDragging = false;
-    canvas.addEventListener('mousedown', () => isDragging = true);
-    window.addEventListener('mouseup', () => isDragging = false);
-    canvas.addEventListener('mousemove', (e) => {
+    let lastX = 0;
+    let lastY = 0;
+
+    const dragStart = (e) => {
+        isDragging = true;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        lastX = clientX;
+        lastY = clientY;
+    };
+
+    const dragEnd = () => { isDragging = false; };
+
+    const dragMove = (e) => {
         if (!isDragging || state.psdLayers.length === 0) return;
+        
+        // Prevent default scrolling when dragging on canvas on mobile
+        if (e.touches) {
+            e.preventDefault();
+        }
+        
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        
+        const movementX = clientX - lastX;
+        const movementY = clientY - lastY;
+        lastX = clientX;
+        lastY = clientY;
+
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
-        state.psdX += e.movementX * scaleX;
-        state.psdY += e.movementY * scaleY;
+        
+        state.psdX += movementX * scaleX;
+        state.psdY += movementY * scaleY;
         document.getElementById('psdX').value = state.psdX;
         document.getElementById('psdY').value = state.psdY;
-    });
+    };
+
+    canvas.addEventListener('mousedown', dragStart);
+    window.addEventListener('mouseup', dragEnd);
+    canvas.addEventListener('mousemove', dragMove);
+
+    canvas.addEventListener('touchstart', dragStart, { passive: false });
+    window.addEventListener('touchend', dragEnd);
+    canvas.addEventListener('touchmove', dragMove, { passive: false });
     
     bindUI('fluxusToggle', 'fluxusEnabled', null);
     bindUI('fluxusMode', 'fluxusMode', null);
@@ -351,8 +385,8 @@ function initUI() {
         state.dissolveType = document.getElementById('smokeTypeSelect').value;
         state.dissolveParticles = [];
         
-        // If Sand Crumble, generate particles from current text frame
-        if (state.dissolveType === 'sand') {
+        // If Sand Crumble or Ash Blow, generate particles from current text frame
+        if (state.dissolveType === 'sand' || state.dissolveType === 'ash') {
             generateSandParticles();
         }
     });
@@ -649,6 +683,27 @@ function render() {
         });
         ctx.restore();
         
+    } else if (state.dissolveType === 'ash' && state.isDissolving) {
+        // Ash Blow (Upward Wind)
+        ctx.save();
+        ctx.translate(canvas.width/2, canvas.height/2);
+        
+        state.dissolveParticles.forEach(p => {
+            // Wind acceleration upwards and slightly to the right
+            p.vy -= (0.5 + Math.random() * 0.8); 
+            p.vx += (Math.random() - 0.4) * 0.6;
+            
+            p.x += p.vx;
+            p.y += p.vy;
+            
+            // Optional: gradually shrink or fade
+            const alpha = Math.max(0, 1.0 - (state.dissolveProgress / 1.5));
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = p.color;
+            ctx.fillRect(p.x, p.y, 3, 3);
+        });
+        ctx.restore();
+        
     } else {
         renderCore(ctx, false);
     }
@@ -900,9 +955,8 @@ function renderCore(context, transparentBg) {
 
         const tinyW = Math.max(1, Math.floor(boxW / pSize));
         const tinyH = Math.max(1, Math.floor(boxH / pSize));
-        // "巨大化が起きた一瞬、文字に強いブラー（ボケ）をかける"
-        // ボケ幅（＝ノイズの散らばる広さ）をintensityスライダーで制御できるようにします
-        const blurAmount = Math.max(pSize, intensity * 1.5);
+        // Reduce blur amount significantly so we get a tight glitch edge instead of a massive cloud of noise pixels
+        const blurAmount = Math.max(pSize, intensity * 0.3);
         const cx = boxW / 2; const cy = boxH / 2;
 
         // Threshold function to ensure NO semi-transparent dots exist (全てベタ).
@@ -915,10 +969,8 @@ function renderCore(context, transparentBg) {
             for (let i = 0; i < d.length; i += 4) {
                 const a = d[i + 3];
                 if (a === 255) {
-                    // Core skeleton (from the unblurred pass): perfectly solid
                     d[i + 3] = 255;
                 } else if (a > 0) {
-                    // Blurred halo: Dithered into scattered, strictly solid dots (バリ)
                     d[i + 3] = (Math.random() * 255 < a) ? 255 : 0;
                 }
             }
@@ -932,14 +984,18 @@ function renderCore(context, transparentBg) {
             const tsCtx = tempStroke.getContext('2d');
             tsCtx.font = data.fontString;
             tsCtx.textAlign = 'center'; tsCtx.textBaseline = 'middle'; tsCtx.lineJoin = 'round';
-            tsCtx.lineWidth = Math.max(state.outlineWidth * (cSize / state.size), 2);
             tsCtx.strokeStyle = state.color;
             
-            // Step 1: Draw the heavily blurred halo
+            // Use a slightly scaled line width. Not 100% scaled (which was too fat), but not fixed (which looks like a straight line).
+            const glitchLineWidth = Math.max(state.outlineWidth, state.outlineWidth * Math.sqrt(cSize / state.size));
+            
+            // Step 1: Draw the heavily blurred halo (using the glitch line width)
+            tsCtx.lineWidth = glitchLineWidth;
             tsCtx.filter = `blur(${blurAmount}px)`;
             tsCtx.strokeText(data.char, cx, cy);
             
-            // Step 2: Draw the unblurred, perfectly solid core exactly on top
+            // Step 2: Draw the unblurred core exactly on top (using the exact same glitch line width!)
+            tsCtx.lineWidth = glitchLineWidth;
             tsCtx.filter = 'none';
             tsCtx.strokeText(data.char, cx, cy);
 
@@ -951,28 +1007,26 @@ function renderCore(context, transparentBg) {
         }
 
         // 2. Generate Mosaic Fill
-        if (!state.outlineOnly) {
-            const tempFill = document.createElement('canvas');
-            tempFill.width = boxW; tempFill.height = boxH;
-            const tfCtx = tempFill.getContext('2d');
-            tfCtx.font = data.fontString;
-            tfCtx.textAlign = 'center'; tfCtx.textBaseline = 'middle'; tfCtx.lineJoin = 'round';
-            tfCtx.fillStyle = state.color;
+        const tempFill = document.createElement('canvas');
+        tempFill.width = boxW; tempFill.height = boxH;
+        const tfCtx = tempFill.getContext('2d');
+        tfCtx.font = data.fontString;
+        tfCtx.textAlign = 'center'; tfCtx.textBaseline = 'middle'; tfCtx.lineJoin = 'round';
+        tfCtx.fillStyle = state.color;
 
-            // Step 1: Draw the heavily blurred halo
-            tfCtx.filter = `blur(${blurAmount}px)`;
-            tfCtx.fillText(data.char, cx, cy);
+        // Step 1: Draw the heavily blurred halo
+        tfCtx.filter = `blur(${blurAmount}px)`;
+        tfCtx.fillText(data.char, cx, cy);
 
-            // Step 2: Draw the unblurred, perfectly solid core exactly on top
-            tfCtx.filter = 'none';
-            tfCtx.fillText(data.char, cx, cy);
+        // Step 2: Draw the unblurred core exactly on top
+        tfCtx.filter = 'none';
+        tfCtx.fillText(data.char, cx, cy);
 
-            const tinyFill = document.createElement('canvas');
-            tinyFill.width = tinyW; tinyFill.height = tinyH;
-            tinyFill.getContext('2d').drawImage(tempFill, 0, 0, tinyW, tinyH);
-            makeSolidDots(tinyFill); // Force all dots to be 100% solid (ベタ)
-            data.mosaicFill = tinyFill;
-        }
+        const tinyFill = document.createElement('canvas');
+        tinyFill.width = tinyW; tinyFill.height = tinyH;
+        tinyFill.getContext('2d').drawImage(tempFill, 0, 0, tinyW, tinyH);
+        makeSolidDots(tinyFill); // Force all dots to be 100% solid (ベタ)
+        data.mosaicFill = tinyFill;
 
         data.mosaicBox = { w: boxW, h: boxH, tw: tinyW, th: tinyH };
     });
@@ -1010,14 +1064,13 @@ function renderCore(context, transparentBg) {
                 } else if (state.outlineWidth > 0 || state.outlineOnly) {
                     targetCtx.strokeText(data.char, 0, 0);
                 }
-            } else if (isFillPass && !state.outlineOnly) {
-                if (state.mergeOverlap && state.outlineWidth > 0) {
+            } else if (isFillPass) {
+                if (state.outlineOnly) {
                     targetCtx.globalCompositeOperation = 'destination-out';
                     if (data.mosaicFill) {
                         targetCtx.imageSmoothingEnabled = false;
                         const mw = Math.round(data.mosaicBox.w);
                         const mh = Math.round(data.mosaicBox.h);
-                        // Erase using the pixelated fill, ensuring the pixelated outline isn't cut with a smooth curve!
                         targetCtx.drawImage(data.mosaicFill, 0, 0, data.mosaicBox.tw, data.mosaicBox.th, Math.round(-mw/2), Math.round(-mh/2), mw, mh);
                         targetCtx.imageSmoothingEnabled = true;
                     } else {
@@ -1041,13 +1094,30 @@ function renderCore(context, transparentBg) {
         });
     };
 
+    // When outlineOnly is true, we want transparent fills that punch out the overlapping strokes.
+    // To prevent punching a hole in the canvas background, we must draw to a temporary canvas first.
+    let targetCtxPass = context;
+    let tempTextCanvas = null;
+    let tempTextCtx = null;
+    
+    if (state.outlineOnly) {
+        tempTextCanvas = document.createElement('canvas');
+        tempTextCanvas.width = canvas.width;
+        tempTextCanvas.height = canvas.height;
+        tempTextCtx = tempTextCanvas.getContext('2d');
+        // Inherit all transforms (slide, spin, jitter, etc.) from the main context
+        tempTextCtx.setTransform(context.getTransform());
+        
+        targetCtxPass = tempTextCtx;
+    }
+
     if (state.rgbSplitEnabled) {
         rgbBaseCanvas.width = canvas.width;
         rgbBaseCanvas.height = canvas.height;
         rgbBaseCtx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // Translate to match main context
-        rgbBaseCtx.translate(canvas.width / 2, canvas.height / 2);
+        // Inherit all transforms (slide, spin, jitter, etc.) from the main context
+        rgbBaseCtx.setTransform(context.getTransform());
         
         drawGlobalPass(false, rgbBaseCtx); // Pass 1: Strokes
         drawGlobalPass(true, rgbBaseCtx);  // Pass 2: Fills / Cutouts
@@ -1088,8 +1158,17 @@ function renderCore(context, transparentBg) {
         context.restore();
         
     } else {
-        drawGlobalPass(false, context); // Pass 1
-        drawGlobalPass(true, context);  // Pass 2
+        drawGlobalPass(false, targetCtxPass); // Pass 1
+        drawGlobalPass(true, targetCtxPass);  // Pass 2
+        
+        if (state.outlineOnly) {
+            // Draw the composited text layer back to main context
+            // We must reset transform on context because tempTextCanvas is full size and already transformed
+            context.save();
+            context.setTransform(1, 0, 0, 1, 0, 0);
+            context.drawImage(tempTextCanvas, 0, 0);
+            context.restore();
+        }
     }
 
     context.restore();

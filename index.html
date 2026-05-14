@@ -101,10 +101,11 @@ TYPOGRAPHY</textarea>
                     <label>GREEN SCRN</label>
                     <button id="greenScreenBtn" class="btn secondary" style="padding: 4px; font-size: 10px;">FOR iPHONE</button>
                 </div>
-                <div class="control-group flex-1">
-                    <label>SIZE (<span id="sizeBox">140</span>)</label>
-                    <input type="range" id="sizeSlider" min="20" max="400" value="140">
-                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: 8px;">
+                <label>SIZE (<span id="sizeBox">140</span>)</label>
+                <input type="range" id="sizeSlider" min="20" max="1000" value="140">
             </div>
 
             <div class="flex-row">
@@ -122,7 +123,6 @@ TYPOGRAPHY</textarea>
                 <label>OUTLINE SETTINGS</label>
                 <div class="btn-row">
                     <button id="outlineOnlyBtn" class="btn toggle-btn">OUTLINE ONLY</button>
-                    <button id="mergeOverlapBtn" class="btn toggle-btn">MERGE OVERLAP</button>
                 </div>
                 <div class="flex-row" style="margin-top: 4px;">
                     <label style="width: 40px;">WIDTH</label>
@@ -304,7 +304,8 @@ TYPOGRAPHY</textarea>
                 <button id="triggerSmokeBtn" class="btn btn-black" style="font-size: 16px; padding: 16px;">TRIGGER SMOKE / DISSIPATE</button>
                 <select id="smokeTypeSelect" style="margin-top: 4px;">
                     <option value="water">Water Grid</option>
-                    <option value="sand">Sand Crumble (Thanos Snap)</option>
+                    <option value="sand">Sand Crumble (Gravity)</option>
+                    <option value="ash">Ash Blow (Thanos Wind)</option>
                     <option value="pop_burst">Pop Smoke (Burst L/R)</option>
                     <option value="pop_center">Pop Smoke (Center)</option>
                 </select>

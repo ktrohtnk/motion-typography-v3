@@ -578,7 +578,7 @@ function loop(timestamp) {
         frameCount++;
         
         if (state.isDissolving) {
-            state.dissolveProgress += 0.02; // Slower progress so particles have more time to scatter
+            state.dissolveProgress += 0.04; // Speed up the dissolve progress
             // Do NOT set isDissolving = false automatically. The text stays gone until the user types again.
         }
         
@@ -671,8 +671,8 @@ function render() {
         }
         const maxDist = state.waterMaxDist || (canvas.width / 2);
         
-        // The mask shrinks horizontally from both ends.
-        const maskProg = Math.min(1, state.dissolveProgress / 1.2);
+        // The mask shrinks horizontally from both ends. Much faster crumble (0.6 instead of 1.2)
+        const maskProg = Math.min(1, state.dissolveProgress / 0.6);
         const currentHalfWidth = maxDist * (1 - maskProg);
         
         // Erase the ends of the text smoothly
@@ -705,23 +705,23 @@ function render() {
             if (distX > currentHalfWidth - 15) {
                 if (!p.active) {
                     p.active = true;
-                    // Initial movement: drop slightly (gravity) then scatter
+                    // Initial movement: drop slightly (gravity) then scatter explosively
                     p.vy = 0.5 + Math.random() * 2.0; 
-                    p.vx = (Math.random() - 0.5) * 8.0; // Scatter MUCH more widely across the screen
+                    p.vx = (Math.random() - 0.5) * 12.0; // Scatter even wider and faster
                     p.life = 0;
                     p.swayOffset = Math.random() * Math.PI * 2;
                 }
                 
-                p.life += 0.008; // Slower fade so they stay on screen longer
+                p.life += 0.015; // Fade/shrink faster to match the faster speed
                 
                 // Sway (ゆらゆら) and mix
-                p.vx += Math.sin(p.life * 25 + p.swayOffset) * 0.2; 
+                p.vx += Math.sin(p.life * 25 + p.swayOffset) * 0.3; 
                 
-                // Strong updraft catches them and blows them upwards (したから上に舞い上がる)
-                p.vy -= 0.12; 
+                // Strong updraft catches them and blows them upwards FAST
+                p.vy -= 0.4; 
                 
-                p.vx *= 0.99; // Less friction so they travel further
-                p.vy *= 0.98;
+                p.vx *= 0.98; // Slightly more friction to control the explosive start
+                p.vy *= 0.97;
                 
                 p.x += p.vx;
                 p.y += p.vy;

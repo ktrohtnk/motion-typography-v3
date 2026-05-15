@@ -657,7 +657,7 @@ function render() {
     }
 
     if (state.dissolveType === 'detergent_stir' && state.isDissolving) {
-        // Solid Detergent Stir (Shrink from outside in, scatter everywhere omnidirectionally, solid dots)
+        // Solid Sandstorm (Asymmetric flow field wind)
         offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
         renderCore(offCtx, true); // Draw core text
         
@@ -667,11 +667,12 @@ function render() {
         
         offCtx.save();
         offCtx.globalCompositeOperation = 'destination-in';
-        offCtx.filter = 'blur(10px)'; // soft edge for breaking off
+        offCtx.filter = 'blur(15px)'; // soft edge for breaking off
         
         if (currentRadius > 0) {
+            // slightly offset mask to break pure center symmetry
             offCtx.beginPath();
-            offCtx.arc(offCanvas.width/2, offCanvas.height/2, currentRadius, 0, Math.PI*2);
+            offCtx.arc(offCanvas.width/2 + Math.sin(frameCount*0.1)*10, offCanvas.height/2 + Math.cos(frameCount*0.1)*10, currentRadius, 0, Math.PI*2);
             offCtx.fill();
         } else {
             offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height); // Guarantee text disappears
@@ -683,31 +684,45 @@ function render() {
         ctx.save();
         ctx.translate(canvas.width/2, canvas.height/2);
         
+        // Global wind that changes slowly over time (breaks left/right symmetry)
+        const globalWindX = Math.sin(frameCount * 0.02) * 2.5;
+        const globalWindY = Math.cos(frameCount * 0.015) * 1.5 - 1.0; // slight bias upwards
+        
         state.dissolveParticles.forEach(p => {
             const dist = Math.sqrt(p.x*p.x + p.y*p.y);
             // Particle activates when the shrinking text radius passes it
             if (dist > currentRadius - 15) {
                 if (!p.active) {
                     p.active = true;
-                    // Initial burst: completely random and violent
-                    p.vx = (Math.random() - 0.5) * 20.0;
-                    p.vy = (Math.random() - 0.5) * 20.0;
+                    // Initial burst: not purely random, but influenced by a "gust" of wind
+                    p.vx = (Math.random() - 0.5) * 15.0 + globalWindX * 3;
+                    p.vy = (Math.random() - 0.5) * 15.0 + globalWindY * 3;
                     p.life = 0;
+                    // Assign a random unique phase for the flow field
+                    p.flowPhaseX = Math.random() * 100;
+                    p.flowPhaseY = Math.random() * 100;
                 }
                 
-                p.life += 0.008; // Slower shrink so they stay visible as a storm longer
+                p.life += 0.008; // Stay visible as a storm longer
                 
-                // Continuous violent sandstorm turbulence
-                p.vx += (Math.random() - 0.5) * 6.0;
-                p.vy += (Math.random() - 0.5) * 6.0;
+                // "気流があるというか 風が吹いてる" - Flow field turbulence!
+                // Each particle curves through the air based on its position, creating "currents"
+                const flowAngleX = (p.x * 0.01) + (p.y * 0.015) + (frameCount * 0.05) + p.flowPhaseX;
+                const flowAngleY = (p.x * 0.015) + (p.y * 0.01) + (frameCount * 0.04) + p.flowPhaseY;
                 
-                // Slight outward wind to keep them expanding
-                const angle = Math.atan2(p.y, p.x);
-                p.vx += Math.cos(angle) * 0.5;
-                p.vy += Math.sin(angle) * 0.5;
+                p.vx += Math.cos(flowAngleX) * 0.8;
+                p.vy += Math.sin(flowAngleY) * 0.8;
                 
-                p.vx *= 0.95; // Friction keeps the storm contained but chaotic
-                p.vy *= 0.95;
+                // Add the global asymmetric wind
+                p.vx += globalWindX * 0.1;
+                p.vy += globalWindY * 0.1;
+                
+                // Random micro-jitter (sandstorm grit)
+                p.vx += (Math.random() - 0.5) * 2.0;
+                p.vy += (Math.random() - 0.5) * 2.0;
+                
+                p.vx *= 0.96; // Friction to create fluid-like motion
+                p.vy *= 0.96;
                 
                 p.x += p.vx;
                 p.y += p.vy;
